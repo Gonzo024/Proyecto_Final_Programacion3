@@ -5,6 +5,8 @@ defmodule Azar.MixProject do
     [
       app: :azar,
       version: "0.1.0",
+
+      #la ia dice que cambie el 1.19 al 1.15 pero no se si es necesario
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -14,6 +16,7 @@ defmodule Azar.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
+      mod: {Azar.Application,[]},
       extra_applications: [:logger]
     ]
   end

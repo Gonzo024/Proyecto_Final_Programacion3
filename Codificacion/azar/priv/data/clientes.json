@@ -1,0 +1,44 @@
+[
+  {
+    "id": "cliente_001",
+    "nombre": "Carlos Ramírez",
+    "documento": "1234567890",
+    "password": "pass123",
+    "tarjeta": {
+      "numero": "4111111111111111",
+      "vencimiento": "12/27",
+      "cvv": "123"
+    },
+    "notificaciones": [
+      "¡Felicidades! Ganaste el Primer Premio en Lotería de Navidad con el billete #42"
+    ]
+  },
+  {
+    "id": "cliente_002",
+    "nombre": "Ana Gómez",
+    "documento": "9876543210",
+    "password": "ana2024",
+    "tarjeta": {
+      "numero": "4222222222222222",
+      "vencimiento": "08/26",
+      "cvv": "456"
+    },
+    "notificaciones": [
+      "Ganaste una fracción del Segundo Premio en Lotería de Navidad con el billete #17"
+    ]
+  },
+  {
+    "id": "cliente_003",
+    "nombre": "Pedro Martínez",
+    "documento": "1122334455",
+    "password": "pedro99",
+    "tarjeta": {
+      "numero": "4333333333333333",
+      "vencimiento": "03/28",
+      "cvv": "789"
+    },
+    "notificaciones": [
+      "Ganaste una fracción del Segundo Premio en Lotería de Navidad con el billete #17"
+    ]
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "sorteo_001",
+    "nombre": "Lotería de Navidad",
+    "fecha": "2025-12-24",
+    "valor_billete": 50000,
+    "fracciones": 5,
+    "cantidad_billetes": 100,
+    "realizado": true,
+    "numeros_ganadores": [42, 17, 88]
+  },
+  {
+    "id": "sorteo_002",
+    "nombre": "Gran Sorteo de Mayo",
+    "fecha": "2026-05-20",
+    "valor_billete": 30000,
+    "fracciones": 3,
+    "cantidad_billetes": 50,
+    "realizado": false,
+    "numeros_ganadores": []
+  },
+  {
+    "id": "sorteo_003",
+    "nombre": "Sorteo Especial Junio",
+    "fecha": "2026-06-15",
+    "valor_billete": 20000,
+    "fracciones": 4,
+    "cantidad_billetes": 200,
+    "realizado": false,
+    "numeros_ganadores": []
+  }
+]

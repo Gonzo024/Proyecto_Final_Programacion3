@@ -1,0 +1,57 @@
+[
+  {
+    "id": "billete_001",
+    "sorteo_id": "sorteo_001",
+    "cliente_id": "cliente_001",
+    "numero": 42,
+    "tipo": "completo",
+    "fraccion_numero": null,
+    "valor_pagado": 50000,
+    "fecha_compra": "2025-12-01",
+    "devuelto": false
+  },
+  {
+    "id": "billete_002",
+    "sorteo_id": "sorteo_001",
+    "cliente_id": "cliente_002",
+    "numero": 17,
+    "tipo": "fraccion",
+    "fraccion_numero": 1,
+    "valor_pagado": 10000,
+    "fecha_compra": "2025-12-05",
+    "devuelto": false
+  },
+  {
+    "id": "billete_003",
+    "sorteo_id": "sorteo_001",
+    "cliente_id": "cliente_003",
+    "numero": 17,
+    "tipo": "fraccion",
+    "fraccion_numero": 2,
+    "valor_pagado": 10000,
+    "fecha_compra": "2025-12-10",
+    "devuelto": false
+  },
+  {
+    "id": "billete_004",
+    "sorteo_id": "sorteo_002",
+    "cliente_id": "cliente_001",
+    "numero": 5,
+    "tipo": "completo",
+    "fraccion_numero": null,
+    "valor_pagado": 30000,
+    "fecha_compra": "2026-05-01",
+    "devuelto": false
+  },
+  {
+    "id": "billete_005",
+    "sorteo_id": "sorteo_002",
+    "cliente_id": "cliente_002",
+    "numero": 12,
+    "tipo": "fraccion",
+    "fraccion_numero": 1,
+    "valor_pagado": 10000,
+    "fecha_compra": "2026-05-03",
+    "devuelto": false
+  }
+]

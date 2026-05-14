@@ -1,0 +1,42 @@
+[
+  {
+    "id": "premio_001",
+    "sorteo_id": "sorteo_001",
+    "nombre": "Primer Premio",
+    "valor": 5000000,
+    "numero_ganador": 42,
+    "ganadores": ["cliente_001"]
+  },
+  {
+    "id": "premio_002",
+    "sorteo_id": "sorteo_001",
+    "nombre": "Segundo Premio",
+    "valor": 2000000,
+    "numero_ganador": 17,
+    "ganadores": ["cliente_002", "cliente_003"]
+  },
+  {
+    "id": "premio_003",
+    "sorteo_id": "sorteo_001",
+    "nombre": "Tercer Premio",
+    "valor": 500000,
+    "numero_ganador": 88,
+    "ganadores": []
+  },
+  {
+    "id": "premio_004",
+    "sorteo_id": "sorteo_002",
+    "nombre": "Primer Premio",
+    "valor": 3000000,
+    "numero_ganador": null,
+    "ganadores": []
+  },
+  {
+    "id": "premio_005",
+    "sorteo_id": "sorteo_002",
+    "nombre": "Segundo Premio",
+    "valor": 1000000,
+    "numero_ganador": null,
+    "ganadores": []
+  }
+]
