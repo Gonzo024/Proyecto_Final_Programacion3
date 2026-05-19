@@ -1,16 +1,27 @@
 defmodule Azar.Servidor do
   @moduledoc """
-  Servidor central de Azar S.A.
+  Servidor central de Azar S.A. — versión distribuida.
 
-  Funciona como GenServer: vive en memoria, recibe solicitudes
-  de los clientes (admin y jugadores), las redirige a los
-  gestores especializados y registra cada acción en bitácora.
+  CÓMO FUNCIONA LA DISTRIBUCIÓN:
+  - Este módulo tiene dos partes:
+    1. Las funciones públicas (crear_sorteo, listar_sorteos, etc.) corren
+       en el nodo CLIENTE y usan Azar.Red.llamar/1 para enviar el mensaje
+       al nodo servidor a través de la red.
+    2. Los handle_call corren SOLO en el nodo servidor donde vive el GenServer.
 
-  Para iniciar:
-    Azar.Servidor.start_link([])
+  CÓMO ARRANCAR:
+    Terminal 1 (servidor):
+      iex --name servidor@127.0.0.1 --cookie azar_cookie -S mix
 
-  Para llamarlo desde otro módulo:
-    Azar.Servidor.crear_sorteo("Lotería", "2026-06-01", 30000, 5, 100)
+    Terminal 2 (admin):
+      iex --name admin@127.0.0.1 --cookie azar_cookie -S mix
+      iex> Azar.Red.conectar()
+      iex> Azar.Admin.Menu.iniciar()
+
+    Terminal 3 (jugador):
+      iex --name jugador1@127.0.0.1 --cookie azar_cookie -S mix
+      iex> Azar.Red.conectar()
+      iex> Azar.Jugador.Menu.iniciar()
   """
 
   use GenServer
@@ -21,109 +32,114 @@ defmodule Azar.Servidor do
   alias Azar.Utils.Bitacora
 
   # ---------------------------------------------------------------------------
-  # API PÚBLICA — funciones que llaman los clientes (admin / jugador)
-  # Estas funciones son las que usas desde fuera del servidor.
-  # Internamente mandan un mensaje al proceso GenServer.
+  # INICIO — solo corre en el nodo servidor
   # ---------------------------------------------------------------------------
 
   def start_link(_opts) do
-    # Registra el proceso con el nombre :servidor_azar para encontrarlo fácil
-    GenServer.start_link(__MODULE__, %{}, name: :servidor_azar)
+    resultado = GenServer.start_link(__MODULE__, %{}, name: :servidor_azar)
+    IO.puts("🌐 Servidor activo en nodo: #{Node.self()}")
+    IO.puts("   Clientes deben usar: --cookie azar_cookie")
+    resultado
   end
+
+  # ---------------------------------------------------------------------------
+  # API PÚBLICA — corren en el nodo cliente, envían mensajes por red
+  # Usan Azar.Red.llamar/1 que hace GenServer.call al nodo remoto
+  # ---------------------------------------------------------------------------
 
   # ── SORTEOS ──────────────────────────────────────────────────────────────────
 
   def crear_sorteo(nombre, fecha, valor, fracciones, cantidad) do
-    GenServer.call(:servidor_azar, {:crear_sorteo, nombre, fecha, valor, fracciones, cantidad})
+    Azar.Red.llamar({:crear_sorteo, nombre, fecha, valor, fracciones, cantidad})
   end
 
   def listar_sorteos do
-    GenServer.call(:servidor_azar, :listar_sorteos)
+    Azar.Red.llamar(:listar_sorteos)
   end
 
   def eliminar_sorteo(id) do
-    GenServer.call(:servidor_azar, {:eliminar_sorteo, id})
+    Azar.Red.llamar({:eliminar_sorteo, id})
   end
 
   def consultar_clientes_sorteo(sorteo_id) do
-    GenServer.call(:servidor_azar, {:consultar_clientes, sorteo_id})
+    Azar.Red.llamar({:consultar_clientes, sorteo_id})
   end
 
   def consultar_ingresos(sorteo_id) do
-    GenServer.call(:servidor_azar, {:consultar_ingresos, sorteo_id})
+    Azar.Red.llamar({:consultar_ingresos, sorteo_id})
   end
 
   def consultar_premios_entregados do
-    GenServer.call(:servidor_azar, :consultar_premios_entregados)
+    Azar.Red.llamar(:consultar_premios_entregados)
   end
 
   def consultar_balance do
-    GenServer.call(:servidor_azar, :consultar_balance)
+    Azar.Red.llamar(:consultar_balance)
   end
 
   def actualizar_fecha(fecha_nueva) do
-    GenServer.call(:servidor_azar, {:actualizar_fecha, fecha_nueva})
+    Azar.Red.llamar({:actualizar_fecha, fecha_nueva})
   end
 
   # ── PREMIOS ───────────────────────────────────────────────────────────────────
 
   def crear_premio(sorteo_id, nombre, valor) do
-    GenServer.call(:servidor_azar, {:crear_premio, sorteo_id, nombre, valor})
+    Azar.Red.llamar({:crear_premio, sorteo_id, nombre, valor})
   end
 
   def listar_premios do
-    GenServer.call(:servidor_azar, :listar_premios)
+    Azar.Red.llamar(:listar_premios)
   end
 
   def eliminar_premio(premio_id) do
-    GenServer.call(:servidor_azar, {:eliminar_premio, premio_id})
+    Azar.Red.llamar({:eliminar_premio, premio_id})
   end
 
-  # ── CLIENTES / JUGADORES ──────────────────────────────────────────────────────
+  # ── CLIENTES ──────────────────────────────────────────────────────────────────
 
   def registrar_cliente(nombre, documento, password, tarjeta) do
-    GenServer.call(:servidor_azar, {:registrar_cliente, nombre, documento, password, tarjeta})
+    Azar.Red.llamar({:registrar_cliente, nombre, documento, password, tarjeta})
   end
 
   def login_cliente(documento, password) do
-    GenServer.call(:servidor_azar, {:login_cliente, documento, password})
+    Azar.Red.llamar({:login_cliente, documento, password})
   end
 
   def sorteos_disponibles do
-    GenServer.call(:servidor_azar, :sorteos_disponibles)
+    Azar.Red.llamar(:sorteos_disponibles)
   end
 
   def numeros_disponibles(sorteo_id) do
-    GenServer.call(:servidor_azar, {:numeros_disponibles, sorteo_id})
+    Azar.Red.llamar({:numeros_disponibles, sorteo_id})
   end
 
   def comprar_billete(cliente_id, sorteo_id, numero, tipo, fraccion_numero \\ nil) do
-    GenServer.call(:servidor_azar, {:comprar_billete, cliente_id, sorteo_id, numero, tipo, fraccion_numero})
+    Azar.Red.llamar({:comprar_billete, cliente_id, sorteo_id, numero, tipo, fraccion_numero})
   end
 
   def historial_compras(cliente_id) do
-    GenServer.call(:servidor_azar, {:historial_compras, cliente_id})
+    Azar.Red.llamar({:historial_compras, cliente_id})
   end
 
   def devolver_compra(billete_id, cliente_id) do
-    GenServer.call(:servidor_azar, {:devolver_compra, billete_id, cliente_id})
+    Azar.Red.llamar({:devolver_compra, billete_id, cliente_id})
   end
 
   def premios_cliente(cliente_id) do
-    GenServer.call(:servidor_azar, {:premios_cliente, cliente_id})
+    Azar.Red.llamar({:premios_cliente, cliente_id})
   end
 
   def balance_cliente(cliente_id) do
-    GenServer.call(:servidor_azar, {:balance_cliente, cliente_id})
+    Azar.Red.llamar({:balance_cliente, cliente_id})
   end
 
   def ver_notificaciones(cliente_id) do
-    GenServer.call(:servidor_azar, {:ver_notificaciones, cliente_id})
+    Azar.Red.llamar({:ver_notificaciones, cliente_id})
   end
 
   # ---------------------------------------------------------------------------
-  # CALLBACKS DE GENSERVER — aquí es donde el servidor PROCESA los mensajes
-  # No los llamas directamente; GenServer los invoca internamente.
+  # CALLBACKS GENSERVER — solo corren en el nodo servidor
+  # Aquí es donde realmente se procesa cada solicitud
   # ---------------------------------------------------------------------------
 
   @impl true
@@ -131,8 +147,6 @@ defmodule Azar.Servidor do
     IO.puts("🚀 Servidor Azar S.A. iniciado correctamente")
     {:ok, estado_inicial}
   end
-
-  # ── HANDLE_CALL — mensajes que esperan respuesta ──────────────────────────
 
   @impl true
   def handle_call({:crear_sorteo, nombre, fecha, valor, fracciones, cantidad}, _from, estado) do
@@ -185,13 +199,10 @@ defmodule Azar.Servidor do
 
   @impl true
   def handle_call({:actualizar_fecha, fecha_nueva}, _from, estado) do
-    # Ejecuta todos los sorteos pendientes cuya fecha <= fecha_nueva
     resultado = ejecutar_sorteos_pendientes(fecha_nueva)
     Bitacora.registrar("ACTUALIZAR_FECHA fecha=#{fecha_nueva}", :ok)
     {:reply, resultado, estado}
   end
-
-  # ── PREMIOS ───────────────────────────────────────────────────────────────
 
   @impl true
   def handle_call({:crear_premio, sorteo_id, nombre, valor}, _from, estado) do
@@ -213,8 +224,6 @@ defmodule Azar.Servidor do
     Bitacora.registrar("ELIMINAR_PREMIO id=#{premio_id}", resultado)
     {:reply, resultado, estado}
   end
-
-  # ── CLIENTES ──────────────────────────────────────────────────────────────
 
   @impl true
   def handle_call({:registrar_cliente, nombre, documento, password, tarjeta}, _from, estado) do
@@ -286,7 +295,6 @@ defmodule Azar.Servidor do
     {:reply, resultado, estado}
   end
 
-  # Captura cualquier mensaje desconocido sin que el servidor explote
   @impl true
   def handle_call(mensaje_desconocido, _from, estado) do
     IO.puts("⚠️  Mensaje no reconocido: #{inspect(mensaje_desconocido)}")
@@ -295,16 +303,14 @@ defmodule Azar.Servidor do
   end
 
   # ---------------------------------------------------------------------------
-  # LÓGICA INTERNA — actualizar fecha y ejecutar sorteos pendientes
+  # LÓGICA INTERNA — ejecutar sorteos y notificar
   # ---------------------------------------------------------------------------
 
   defp ejecutar_sorteos_pendientes(fecha_nueva) do
     sorteos = Azar.Utils.JsonHelper.leer_archivo("priv/data/sorteos.json")
 
-    # Filtramos sorteos que aún no se realizaron y cuya fecha ya pasó
     pendientes =
-      sorteos
-      |> Enum.filter(fn s ->
+      Enum.filter(sorteos, fn s ->
         not s["realizado"] and s["fecha"] <= fecha_nueva
       end)
 
@@ -316,13 +322,10 @@ defmodule Azar.Servidor do
         Enum.map(pendientes, fn sorteo ->
           IO.puts("🎰 Ejecutando sorteo: #{sorteo["nombre"]} (#{sorteo["fecha"]})")
           resultado = GestorSorteos.realizar_sorteo(sorteo["id"])
-
-          # Notificamos a los jugadores ganadores
           case resultado do
             {:ok, _numeros} -> notificar_ganadores(sorteo["id"])
             _ -> :ok
           end
-
           {sorteo["nombre"], resultado}
         end)
 
@@ -330,19 +333,15 @@ defmodule Azar.Servidor do
     end
   end
 
-  # Envía notificaciones a los clientes que ganaron en un sorteo
   defp notificar_ganadores(sorteo_id) do
-    premios   = Azar.Utils.JsonHelper.leer_archivo("priv/data/premios.json")
-    clientes  = Azar.Utils.JsonHelper.leer_archivo("priv/data/clientes.json")
-    sorteos   = Azar.Utils.JsonHelper.leer_archivo("priv/data/sorteos.json")
-
-    sorteo = Enum.find(sorteos, fn s -> s["id"] == sorteo_id end)
-
+    premios  = Azar.Utils.JsonHelper.leer_archivo("priv/data/premios.json")
+    clientes = Azar.Utils.JsonHelper.leer_archivo("priv/data/clientes.json")
+    sorteos  = Azar.Utils.JsonHelper.leer_archivo("priv/data/sorteos.json")
+    sorteo   = Enum.find(sorteos, fn s -> s["id"] == sorteo_id end)
     premios_sorteo = Enum.filter(premios, fn p -> p["sorteo_id"] == sorteo_id end)
 
     clientes_actualizados =
       Enum.map(clientes, fn cliente ->
-        # Buscamos si este cliente ganó algún premio
         notifs_nuevas =
           premios_sorteo
           |> Enum.filter(fn p -> cliente["id"] in p["ganadores"] end)
@@ -350,16 +349,12 @@ defmodule Azar.Servidor do
             "🎉 Ganaste #{p["nombre"]} en '#{sorteo["nombre"]}' con el número #{p["numero_ganador"]}. Premio: $#{p["valor"]}"
           end)
 
-        if notifs_nuevas == [] do
-          cliente
-        else
-          Map.update(cliente, "notificaciones", notifs_nuevas, fn existing ->
-            existing ++ notifs_nuevas
-          end)
-        end
+        if notifs_nuevas == [],
+          do: cliente,
+          else: Map.update(cliente, "notificaciones", notifs_nuevas, fn ex -> ex ++ notifs_nuevas end)
       end)
 
     Azar.Utils.JsonHelper.escribir_archivo("priv/data/clientes.json", clientes_actualizados)
-    IO.puts("📨 Notificaciones enviadas a los ganadores del sorteo #{sorteo_id}")
+    IO.puts("📨 Notificaciones enviadas a ganadores del sorteo #{sorteo_id}")
   end
 end

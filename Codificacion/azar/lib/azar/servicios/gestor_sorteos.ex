@@ -1,69 +1,57 @@
 defmodule Azar.Servicios.GestorSorteos do
   @moduledoc """
-  Gestión completa de sorteos: crear, listar, eliminar,
-  consultar clientes, ingresos y balance.
-  Toda la información se persiste en archivos JSON.
-  """
-  # IMPORTANTE ESTO ESTA GENERADO CON IA Y TENGO QUE SABER QUE ES LO QUE HACE Y ESTUDIARLO
-  alias Azar.Modelos.Sorteo
-  alias Azar.Utils.JsonHelper
+  Gestión completa de sorteos con persistencia JSON.
 
-  # Rutas de los archivos JSON (relativas al directorio raíz del proyecto)
-  @archivo_sorteos "priv/data/sorteos.json"
-  @archivo_premios "priv/data/premios.json"
+  CAMBIO CLAVE vs la versión anterior:
+  Al crear un sorteo, ahora también levanta un proceso
+  ServidorSorteo dedicado mediante el DynamicSupervisor.
+  Ese proceso es el "servidor especializado por sorteo"
+  que pide el profesor.
+  """
+
+  alias Azar.Utils.JsonHelper
+  alias Azar.SupervisorSorteos
+
+  @archivo_sorteos  "priv/data/sorteos.json"
+  @archivo_premios  "priv/data/premios.json"
   @archivo_billetes "priv/data/billetes.json"
   @archivo_clientes "priv/data/clientes.json"
 
   # ---------------------------------------------------------------------------
-  # CREAR SORTEO
+  # CREAR SORTEO — también levanta el proceso especializado
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Crea un nuevo sorteo y lo guarda en sorteos.json.
-
-  Genera un id único basado en timestamp.
-  Retorna {:ok, sorteo} o {:error, motivo}
-
-  Ejemplo:
-    GestorSorteos.crear_sorteo("Lotería Mayo", "2026-05-20", 30000, 5, 100)
-  """
   def crear_sorteo(nombre, fecha, valor_billete, fracciones, cantidad_billetes) do
     sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
-
-    # Generamos un id único usando el tiempo actual
     id = "sorteo_#{System.os_time(:millisecond)}"
 
     nuevo_sorteo = %{
-      "id" => id,
-      "nombre" => nombre,
-      "fecha" => fecha,
-      "valor_billete" => valor_billete,
-      "fracciones" => fracciones,
+      "id"                => id,
+      "nombre"            => nombre,
+      "fecha"             => fecha,
+      "valor_billete"     => valor_billete,
+      "fracciones"        => fracciones,
       "cantidad_billetes" => cantidad_billetes,
-      "realizado" => false,
+      "realizado"         => false,
       "numeros_ganadores" => []
     }
 
     case JsonHelper.escribir_archivo(@archivo_sorteos, [nuevo_sorteo | sorteos]) do
       :ok ->
-        IO.puts("✅ Sorteo '#{nombre}' creado con id #{id}")
+        # 🔑 PUNTO CRÍTICO: levantamos el proceso dedicado para este sorteo
+        SupervisorSorteos.iniciar_sorteo(id)
+        IO.puts("✅ Sorteo '#{nombre}' creado [#{id}] — proceso especializado activo")
         {:ok, nuevo_sorteo}
 
       :error ->
-        IO.puts("❌ Error al guardar el sorteo")
         {:error, "No se pudo guardar el sorteo"}
     end
   end
 
   # ---------------------------------------------------------------------------
-  # LISTAR SORTEOS (ordenados por fecha)
+  # LISTAR SORTEOS
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Lista todos los sorteos ordenados por fecha.
-  Muestra premios asociados si existen.
-  Si ya se realizó, muestra números ganadores y ganadores por premio.
-  """
   def listar_sorteos do
     sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
     premios = JsonHelper.leer_archivo(@archivo_premios)
@@ -72,41 +60,36 @@ defmodule Azar.Servicios.GestorSorteos do
       IO.puts("No hay sorteos registrados.")
     else
       sorteos
-      # Ordenamos por fecha (string "YYYY-MM-DD" se puede comparar directamente)
       |> Enum.sort_by(fn s -> s["fecha"] end)
       |> Enum.each(fn sorteo ->
         IO.puts("\n─────────────────────────────────")
         IO.puts("📋 #{sorteo["nombre"]}  [#{sorteo["id"]}]")
         IO.puts("   Fecha: #{sorteo["fecha"]}")
+        IO.puts("   Billete: $#{sorteo["valor_billete"]} | Fracciones: #{sorteo["fracciones"]} | Billetes: #{sorteo["cantidad_billetes"]}")
 
-        IO.puts(
-          "   Billete: $#{sorteo["valor_billete"]} | Fracciones: #{sorteo["fracciones"]} | Billetes: #{sorteo["cantidad_billetes"]}"
-        )
-
-        # Premios de este sorteo
         premios_sorteo = Enum.filter(premios, fn p -> p["sorteo_id"] == sorteo["id"] end)
 
         if premios_sorteo == [] do
           IO.puts("   Sin premios registrados.")
         else
           IO.puts("   🏆 Premios:")
-
           Enum.each(premios_sorteo, fn p ->
             IO.puts("      - #{p["nombre"]}: $#{p["valor"]}")
           end)
         end
 
-        # Si ya se realizó, mostramos ganadores
         if sorteo["realizado"] do
           IO.puts("   ✅ REALIZADO - Números ganadores: #{inspect(sorteo["numeros_ganadores"])}")
-
           Enum.each(premios_sorteo, fn p ->
             if p["ganadores"] != [] do
               IO.puts("      #{p["nombre"]} → ganadores: #{Enum.join(p["ganadores"], ", ")}")
             end
           end)
         else
-          IO.puts("   ⏳ Pendiente")
+          # Mostramos si tiene proceso activo
+          activo = Azar.ServidorSorteo.activo?(sorteo["id"])
+          estado_proceso = if activo, do: "⚙️ proceso activo", else: "⚠️ sin proceso"
+          IO.puts("   ⏳ Pendiente (#{estado_proceso})")
         end
       end)
     end
@@ -116,21 +99,15 @@ defmodule Azar.Servicios.GestorSorteos do
   # ELIMINAR SORTEO
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Elimina un sorteo SOLO si no tiene premios asociados.
-  Retorna {:ok, mensaje} o {:error, motivo}
-  """
   def eliminar_sorteo(id) do
     sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
     premios = JsonHelper.leer_archivo(@archivo_premios)
 
-    # Verificamos que el sorteo existe
     case Enum.find(sorteos, fn s -> s["id"] == id end) do
       nil ->
         {:error, "Sorteo con id '#{id}' no encontrado"}
 
       _sorteo ->
-        # Verificamos que no tenga premios asociados
         tiene_premios = Enum.any?(premios, fn p -> p["sorteo_id"] == id end)
 
         if tiene_premios do
@@ -154,23 +131,18 @@ defmodule Azar.Servicios.GestorSorteos do
   # CONSULTAR CLIENTES DE UN SORTEO
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Lista los clientes de un sorteo ordenados alfabéticamente,
-  agrupados en: compradores de billete completo y compradores por fracción.
-  """
   def consultar_clientes(sorteo_id) do
     billetes = JsonHelper.leer_archivo(@archivo_billetes)
     clientes = JsonHelper.leer_archivo(@archivo_clientes)
 
-    # Billetes activos (no devueltos) de este sorteo
     billetes_sorteo =
-      billetes
-      |> Enum.filter(fn b -> b["sorteo_id"] == sorteo_id and not b["devuelto"] end)
+      Enum.filter(billetes, fn b ->
+        b["sorteo_id"] == sorteo_id and not b["devuelto"]
+      end)
 
     if billetes_sorteo == [] do
       IO.puts("No hay clientes para este sorteo.")
     else
-      # Función auxiliar: dado un cliente_id, retorna el nombre
       nombre_cliente = fn id ->
         case Enum.find(clientes, fn c -> c["id"] == id end) do
           nil -> "Desconocido (#{id})"
@@ -178,43 +150,32 @@ defmodule Azar.Servicios.GestorSorteos do
         end
       end
 
-      # Separamos por tipo
       completos =
         billetes_sorteo
         |> Enum.filter(fn b -> b["tipo"] == "completo" end)
         |> Enum.map(fn b -> nombre_cliente.(b["cliente_id"]) end)
-        |> Enum.uniq()
-        |> Enum.sort()
+        |> Enum.uniq() |> Enum.sort()
 
       fracciones =
         billetes_sorteo
         |> Enum.filter(fn b -> b["tipo"] == "fraccion" end)
         |> Enum.map(fn b -> nombre_cliente.(b["cliente_id"]) end)
-        |> Enum.uniq()
-        |> Enum.sort()
+        |> Enum.uniq() |> Enum.sort()
 
       IO.puts("\n👥 Clientes del sorteo #{sorteo_id}")
       IO.puts("\n  Billete Completo:")
-
-      if completos == [],
-        do: IO.puts("    (ninguno)"),
+      if completos == [], do: IO.puts("    (ninguno)"),
         else: Enum.each(completos, fn n -> IO.puts("    - #{n}") end)
-
       IO.puts("\n  Por Fracción:")
-
-      if fracciones == [],
-        do: IO.puts("    (ninguno)"),
+      if fracciones == [], do: IO.puts("    (ninguno)"),
         else: Enum.each(fracciones, fn n -> IO.puts("    - #{n}") end)
     end
   end
 
   # ---------------------------------------------------------------------------
-  # CONSULTAR INGRESOS POR SORTEO
+  # CONSULTAR INGRESOS
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Muestra el total de dinero recolectado en un sorteo específico.
-  """
   def consultar_ingresos(sorteo_id) do
     billetes = JsonHelper.leer_archivo(@archivo_billetes)
 
@@ -228,18 +189,12 @@ defmodule Azar.Servicios.GestorSorteos do
   end
 
   # ---------------------------------------------------------------------------
-  # CONSULTAR PREMIOS ENTREGADOS EN SORTEOS PASADOS
+  # PREMIOS ENTREGADOS EN SORTEOS PASADOS
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Para sorteos ya realizados, muestra:
-  - Premios entregados y sus ganadores
-  - Dinero recolectado
-  - Ganancias o pérdidas
-  """
   def consultar_premios_entregados do
-    sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
-    premios = JsonHelper.leer_archivo(@archivo_premios)
+    sorteos  = JsonHelper.leer_archivo(@archivo_sorteos)
+    premios  = JsonHelper.leer_archivo(@archivo_premios)
     billetes = JsonHelper.leer_archivo(@archivo_billetes)
     clientes = JsonHelper.leer_archivo(@archivo_clientes)
 
@@ -252,7 +207,6 @@ defmodule Azar.Servicios.GestorSorteos do
         IO.puts("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         IO.puts("📅 #{sorteo["nombre"]} (#{sorteo["fecha"]})")
 
-        # Ingresos: suma de billetes vendidos no devueltos
         ingresos =
           billetes
           |> Enum.filter(fn b -> b["sorteo_id"] == sorteo["id"] and not b["devuelto"] end)
@@ -260,15 +214,12 @@ defmodule Azar.Servicios.GestorSorteos do
 
         IO.puts("   💰 Dinero recolectado: $#{ingresos}")
 
-        # Premios de este sorteo
         premios_sorteo = Enum.filter(premios, fn p -> p["sorteo_id"] == sorteo["id"] end)
         total_premios = Enum.reduce(premios_sorteo, 0, fn p, acc -> acc + p["valor"] end)
 
         IO.puts("   🏆 Premios entregados:")
-
         Enum.each(premios_sorteo, fn premio ->
-          # Nombre de los ganadores
-          nombres_ganadores =
+          nombres =
             premio["ganadores"]
             |> Enum.map(fn gid ->
               case Enum.find(clientes, fn c -> c["id"] == gid end) do
@@ -277,20 +228,15 @@ defmodule Azar.Servicios.GestorSorteos do
               end
             end)
 
-          if nombres_ganadores == [] do
+          if nombres == [] do
             IO.puts("      - #{premio["nombre"]}: $#{premio["valor"]} (sin ganador)")
           else
-            # El valor se divide entre los ganadores (fracciones)
-            valor_por_ganador = div(premio["valor"], length(nombres_ganadores))
+            por_ganador = div(premio["valor"], length(nombres))
             IO.puts("      - #{premio["nombre"]}: $#{premio["valor"]}")
-
-            Enum.each(nombres_ganadores, fn n ->
-              IO.puts("        👤 #{n} recibe $#{valor_por_ganador}")
-            end)
+            Enum.each(nombres, fn n -> IO.puts("        👤 #{n} recibe $#{por_ganador}") end)
           end
         end)
 
-        # Cálculo de ganancia o pérdida
         diferencia = ingresos - total_premios
         resultado = if diferencia >= 0, do: "✅ Ganancia", else: "❌ Pérdida"
         IO.puts("   #{resultado}: $#{abs(diferencia)}")
@@ -299,108 +245,57 @@ defmodule Azar.Servicios.GestorSorteos do
   end
 
   # ---------------------------------------------------------------------------
-  # BALANCE DE TODOS LOS SORTEOS PASADOS
+  # BALANCE GENERAL
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Muestra ganancias/pérdidas por cada sorteo realizado
-  y el total acumulado de todos.
-  """
   def consultar_balance do
-    sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
-    premios = JsonHelper.leer_archivo(@archivo_premios)
+    sorteos  = JsonHelper.leer_archivo(@archivo_sorteos)
+    premios  = JsonHelper.leer_archivo(@archivo_premios)
     billetes = JsonHelper.leer_archivo(@archivo_billetes)
 
-    sorteos_pasados = Enum.filter(sorteos, fn s -> s["realizado"] end)
+    pasados = Enum.filter(sorteos, fn s -> s["realizado"] end)
 
-    if sorteos_pasados == [] do
+    if pasados == [] do
       IO.puts("No hay sorteos realizados aún.")
     else
       IO.puts("\n📊 BALANCE GENERAL")
       IO.puts("════════════════════════════════════")
 
-      total_acumulado =
-        Enum.reduce(sorteos_pasados, 0, fn sorteo, acc_total ->
+      total =
+        Enum.reduce(pasados, 0, fn sorteo, acc ->
           ingresos =
             billetes
             |> Enum.filter(fn b -> b["sorteo_id"] == sorteo["id"] and not b["devuelto"] end)
-            |> Enum.reduce(0, fn b, acc -> acc + b["valor_pagado"] end)
+            |> Enum.reduce(0, fn b, a -> a + b["valor_pagado"] end)
 
           total_premios =
             premios
             |> Enum.filter(fn p -> p["sorteo_id"] == sorteo["id"] end)
-            |> Enum.reduce(0, fn p, acc -> acc + p["valor"] end)
+            |> Enum.reduce(0, fn p, a -> a + p["valor"] end)
 
-          diferencia = ingresos - total_premios
-          simbolo = if diferencia >= 0, do: "✅", else: "❌"
-
-          IO.puts("#{simbolo} #{sorteo["nombre"]}: $#{diferencia}")
-
-          acc_total + diferencia
+          dif = ingresos - total_premios
+          simbolo = if dif >= 0, do: "✅", else: "❌"
+          IO.puts("#{simbolo} #{sorteo["nombre"]}: $#{dif}")
+          acc + dif
         end)
 
       IO.puts("────────────────────────────────────")
-      simbolo_total = if total_acumulado >= 0, do: "✅ GANANCIA TOTAL", else: "❌ PÉRDIDA TOTAL"
-      IO.puts("#{simbolo_total}: $#{abs(total_acumulado)}")
+      s = if total >= 0, do: "✅ GANANCIA TOTAL", else: "❌ PÉRDIDA TOTAL"
+      IO.puts("#{s}: $#{abs(total)}")
     end
   end
 
   # ---------------------------------------------------------------------------
-  # REALIZAR SORTEO (asignar números ganadores aleatoriamente)
+  # REALIZAR SORTEO — delega al proceso especializado si está activo
   # ---------------------------------------------------------------------------
 
-  @doc """
-  Realiza un sorteo pendiente: asigna números ganadores aleatorios
-  a cada premio y marca el sorteo como realizado.
-  Usado por el admin al actualizar la fecha del sistema.
-  """
   def realizar_sorteo(sorteo_id) do
-    sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
-    premios = JsonHelper.leer_archivo(@archivo_premios)
-
-    case Enum.find(sorteos, fn s -> s["id"] == sorteo_id end) do
-      nil ->
-        {:error, "Sorteo no encontrado"}
-
-      %{"realizado" => true} ->
-        {:error, "El sorteo ya fue realizado"}
-
-      sorteo ->
-        cantidad = sorteo["cantidad_billetes"]
-        premios_sorteo = Enum.filter(premios, fn p -> p["sorteo_id"] == sorteo_id end)
-
-        # Generamos un número ganador único por premio
-        {premios_actualizados, _usados} =
-          Enum.map_reduce(premios_sorteo, [], fn premio, usados ->
-            numero = numero_unico_aleatorio(cantidad, usados)
-            premio_actualizado = Map.put(premio, "numero_ganador", numero)
-            {premio_actualizado, [numero | usados]}
-          end)
-
-        # Actualizamos los premios en el JSON
-        otros_premios = Enum.reject(premios, fn p -> p["sorteo_id"] == sorteo_id end)
-        JsonHelper.escribir_archivo(@archivo_premios, otros_premios ++ premios_actualizados)
-
-        # Marcamos el sorteo como realizado
-        numeros = Enum.map(premios_actualizados, fn p -> p["numero_ganador"] end)
-
-        sorteo_actualizado =
-          sorteo
-          |> Map.put("realizado", true)
-          |> Map.put("numeros_ganadores", numeros)
-
-        nuevos_sorteos =
-          Enum.map(sorteos, fn s ->
-            if s["id"] == sorteo_id, do: sorteo_actualizado, else: s
-          end)
-
-        JsonHelper.escribir_archivo(@archivo_sorteos, nuevos_sorteos)
-
-        # Asignamos ganadores según quién compró esos números
-        asignar_ganadores(sorteo_id, premios_actualizados)
-
-        IO.puts("🎉 Sorteo '#{sorteo["nombre"]}' realizado. Ganadores: #{inspect(numeros)}")
-        {:ok, numeros}
+    if Azar.ServidorSorteo.activo?(sorteo_id) do
+      # Usamos el proceso dedicado del sorteo (arquitectura distribuida)
+      Azar.ServidorSorteo.realizar(sorteo_id)
+    else
+      # Fallback: lógica directa si el proceso no está activo
+      realizar_directo(sorteo_id)
     end
   end
 
@@ -408,36 +303,63 @@ defmodule Azar.Servicios.GestorSorteos do
   # FUNCIONES PRIVADAS
   # ---------------------------------------------------------------------------
 
-  # Genera un número aleatorio entre 1 y max que no esté en la lista 'usados'
-  defp numero_unico_aleatorio(max, usados) do
-    numero = :rand.uniform(max)
-    if numero in usados, do: numero_unico_aleatorio(max, usados), else: numero
+  defp realizar_directo(sorteo_id) do
+    sorteos = JsonHelper.leer_archivo(@archivo_sorteos)
+    premios = JsonHelper.leer_archivo(@archivo_premios)
+
+    case Enum.find(sorteos, fn s -> s["id"] == sorteo_id end) do
+      nil -> {:error, "Sorteo no encontrado"}
+      %{"realizado" => true} -> {:error, "El sorteo ya fue realizado"}
+      sorteo ->
+        premios_sorteo = Enum.filter(premios, fn p -> p["sorteo_id"] == sorteo_id end)
+
+        {premios_actualizados, _} =
+          Enum.map_reduce(premios_sorteo, [], fn p, usados ->
+            num = numero_unico_aleatorio(sorteo["cantidad_billetes"], usados)
+            {Map.put(p, "numero_ganador", num), [num | usados]}
+          end)
+
+        otros = Enum.reject(premios, fn p -> p["sorteo_id"] == sorteo_id end)
+        JsonHelper.escribir_archivo(@archivo_premios, otros ++ premios_actualizados)
+
+        numeros = Enum.map(premios_actualizados, & &1["numero_ganador"])
+        sorteo_ok = sorteo |> Map.put("realizado", true) |> Map.put("numeros_ganadores", numeros)
+        nuevos = Enum.map(sorteos, fn s -> if s["id"] == sorteo_id, do: sorteo_ok, else: s end)
+        JsonHelper.escribir_archivo(@archivo_sorteos, nuevos)
+
+        asignar_ganadores(sorteo_id, premios_actualizados)
+        IO.puts("🎉 Sorteo '#{sorteo["nombre"]}' realizado. Ganadores: #{inspect(numeros)}")
+        {:ok, numeros}
+    end
   end
 
-  # Busca quién compró cada número ganador y los registra como ganadores del premio
-  defp asignar_ganadores(sorteo_id, premios_con_ganadores) do
-    billetes = JsonHelper.leer_archivo(@archivo_billetes)
-    premios_actuales = JsonHelper.leer_archivo(@archivo_premios)
+  defp numero_unico_aleatorio(max, usados) do
+    n = :rand.uniform(max)
+    if n in usados, do: numero_unico_aleatorio(max, usados), else: n
+  end
 
-    premios_finales =
-      Enum.map(premios_actuales, fn premio ->
-        if premio["sorteo_id"] == sorteo_id do
-          # Buscamos quién tiene el número ganador (puede ser 1 o varios si es fraccionado)
+  defp asignar_ganadores(sorteo_id, premios_actualizados) do
+    billetes = JsonHelper.leer_archivo(@archivo_billetes)
+    todos = JsonHelper.leer_archivo(@archivo_premios)
+
+    finales =
+      Enum.map(todos, fn p ->
+        if p["sorteo_id"] == sorteo_id do
           ganadores =
             billetes
             |> Enum.filter(fn b ->
               b["sorteo_id"] == sorteo_id and
-                b["numero"] == premio["numero_ganador"] and
-                not b["devuelto"]
+              b["numero"] == p["numero_ganador"] and
+              not b["devuelto"]
             end)
-            |> Enum.map(fn b -> b["cliente_id"] end)
-
-          Map.put(premio, "ganadores", ganadores)
+            |> Enum.map(& &1["cliente_id"])
+          Map.put(p, "ganadores", ganadores)
         else
-          premio
+          p
         end
       end)
 
-    JsonHelper.escribir_archivo(@archivo_premios, premios_finales)
+    JsonHelper.escribir_archivo(@archivo_premios, finales)
+    premios_actualizados
   end
 end
